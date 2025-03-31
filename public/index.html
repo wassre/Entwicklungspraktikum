@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Machining V2 Data Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    body {
+            margin: 0;
+      font-family: monospace;
+            display: flex;
+            flex-direction: column;
+        }
+        .visualization-container {
+            display: flex;
+            height: 100vh;
+            position: relative;
+        }
+        .viz-panel {
+            width: 50%;
+            height: 100%;
+            position: relative;
+        }
+        .viz-panel:first-child {
+            border-right: 2px solid white;
+        }
+        .data-container {
+            width: 50%;
+            height: 100vh;
+            overflow-y: auto;
+      padding: 20px;
+            box-sizing: border-box;
+            background-color: #f0f0f0;
+        }
+        .data-point {
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+      padding: 10px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .timestamp {
+            color: #666;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+            margin-bottom: 5px;
+        }
+        .category {
+            margin-left: 20px;
+            margin-bottom: 5px;
+        }
+        .category-title {
+            color: #333;
+            font-weight: bold;
+        }
+        .values {
+            margin-left: 20px;
+            color: #444;
+        }
+        .program-state {
+            color: #009900;
+            font-weight: bold;
+        }
+        .instance-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: monospace;
+            background-color: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 3px;
+    }
+    .power-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 10px;
+        background: #f5f5f5;
+        border-radius: 4px;
+    }
+
+    .power-item {
+        display: flex;
+        flex-direction: column;
+        padding: 8px;
+    }
+
+    .power-total {
+        grid-column: 1 / -1;
+        border-top: 1px solid #ddd;
+        padding-top: 10px;
+        margin-top: 5px;
+    }
+
+    .power-value {
+        font-size: 1.2em;
+        font-weight: bold;
+        color: #2196F3;
+    }
+
+    .sensor-panel {
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 4px;
+        padding: 12px;
+        margin: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .power-readings {
+        display: grid;
+        gap: 8px;
+    }
+
+    .power-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 0;
+        border-bottom: 1px solid #eee;
+    }
+
+    .power-item label {
+        color: #666;
+    }
+
+    .power-item span {
+        font-weight: bold;
+        color: #2196F3;
+    }
+  </style>
+</head>
+<body>
+    <div class="visualization-container">
+        <div id="viz1" class="viz-panel"></div>
+        <div id="viz2" class="viz-panel"></div>
+    </div>
+    <div id="data-container">Waiting for data...</div>
+
+  <script>
+        // Create visualization setup function
+        function createVisualization(containerId) {
+            const container = document.getElementById(containerId);
+            
+            // Scene setup
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            // Add power display div
+            const powerDisplayDiv = document.createElement('div');
+            powerDisplayDiv.style.position = 'absolute';
+            powerDisplayDiv.style.bottom = '20px';
+            powerDisplayDiv.style.right = '20px';
+            powerDisplayDiv.style.width = '300px';
+            powerDisplayDiv.style.padding = '10px';
+            powerDisplayDiv.style.background = 'rgba(0, 0, 0, 0.8)';
+            powerDisplayDiv.style.color = '#ffffff';
+            powerDisplayDiv.style.fontFamily = 'monospace';
+            powerDisplayDiv.style.fontSize = '12px';
+            powerDisplayDiv.style.borderRadius = '5px';
+            powerDisplayDiv.style.zIndex = '1000';
+
+            // Add canvas for power chart
+            const powerChartCanvas = document.createElement('canvas');
+            powerChartCanvas.width = 280;  
+            powerChartCanvas.height = 150;
+            powerChartCanvas.style.marginTop = '10px';
+            powerDisplayDiv.appendChild(powerChartCanvas);
+
+            container.appendChild(powerDisplayDiv);
+            
+            // Initialize power history with default values
+            const powerHistory = {
+                lastAxes: null,
+                lastCoolant: null,
+                timestamps: [],
+                totalPowerValues: [],  // Store recent values for graph
+                maxPoints: 50,  // Keep last 50 points for display
+                totalAccumulated: 0  // Keep track of total accumulated power
+            };
+            
+            // Calculate center of working area
+            const workingCenter = {
+                x: 137,
+                y: 0.15,
+                z: 215
+            };
+            
+            // Position camera
+            camera.position.set(
+                workingCenter.x,
+                workingCenter.y + 200,
+                workingCenter.z + 300
+            );
+            camera.lookAt(workingCenter.x, workingCenter.y, workingCenter.z);
+            
+            // Add orbit controls
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(workingCenter.x, workingCenter.y, workingCenter.z);
+            controls.enableDamping = true;  
+            controls.dampingFactor = 0.05;  
+            controls.screenSpacePanning = true;  
+            controls.minDistance = 50;  
+            controls.maxDistance = 500;  
+            controls.maxPolarAngle = Math.PI / 2;  
+            controls.update();
+            
+            // Setup scene
+            scene.background = new THREE.Color(0x222222);
+            
+            // Add grid
+            const gridHelper = new THREE.GridHelper(1000, 200);
+            gridHelper.position.set(workingCenter.x, workingCenter.y, workingCenter.z);
+            scene.add(gridHelper);
+            
+            // Add instance controls
+            const instanceControls = document.createElement('div');
+            instanceControls.style.position = 'absolute';
+            instanceControls.style.top = '10px';
+            instanceControls.style.left = '50%';
+            instanceControls.style.transform = 'translateX(-50%)';
+            instanceControls.style.zIndex = '1000';
+            instanceControls.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            instanceControls.style.padding = '10px';
+            instanceControls.style.color = 'white';
+            instanceControls.innerHTML = `
+                <div>Instance ID: 
+                    <input type="number" class="instance-input" style="width: 100px">
+                    <button class="connect-btn">Connect</button>
+                </div>
+                <div class="instance-label" style="margin-top: 35px; margin-left: -10px; text-align: center;">Displayed Instance: --</div>
+            `;
+            container.appendChild(instanceControls);
+            
+            // Add visualization mode controls
+            const visualizationDiv = document.createElement('div');
+            visualizationDiv.style.position = 'absolute';
+            visualizationDiv.style.top = '10px';
+            visualizationDiv.style.left = '10px';
+            visualizationDiv.style.color = 'white';
+            visualizationDiv.style.fontFamily = 'monospace';
+            visualizationDiv.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            visualizationDiv.style.padding = '10px';
+            visualizationDiv.innerHTML = `
+                <div>Visualization Mode:</div>
+                <button class="mode-btn" data-mode="speed">Speed</button>
+                <button class="mode-btn" data-mode="torque">Torque</button>
+            `;
+            container.appendChild(visualizationDiv);
+            
+            // Add program state display
+            const programStateDiv = document.createElement('div');
+            programStateDiv.style.position = 'absolute';
+            programStateDiv.style.top = '10px';
+            programStateDiv.style.right = '10px';
+            programStateDiv.style.color = 'white';
+            programStateDiv.style.fontFamily = 'monospace';
+            programStateDiv.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            programStateDiv.style.padding = '10px';
+            programStateDiv.innerHTML = 'Tool Ident: Waiting...';
+            container.appendChild(programStateDiv);
+            
+            // Add legends
+            const speedLegend = createLegend('speed');
+            const torqueLegend = createLegend('torque');
+            container.appendChild(speedLegend);
+            container.appendChild(torqueLegend);
+            
+            // Create line groups
+            const speedLines = new THREE.Group();
+            const torqueLines = new THREE.Group();
+            scene.add(speedLines);
+            scene.add(torqueLines);
+            
+            return {
+                scene,
+                camera,
+                renderer,
+                controls,
+                speedLines,
+                torqueLines,
+                container,
+                instanceControls,
+                visualizationDiv,
+                programStateDiv,
+                speedLegend,
+                torqueLegend,
+                currentMode: 'speed',
+                lastPosition: null,
+                currentEventSource: null,
+                powerDisplayDiv,
+                powerHistory,
+                instanceLabel: instanceControls.querySelector('.instance-label'),
+                powerChartCanvas
+            };
+        }
+        
+        // Create visualization instances
+        const viz1 = createVisualization('viz1');
+        const viz2 = createVisualization('viz2');
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            viz1.controls.update();
+            viz2.controls.update();
+            viz1.renderer.render(viz1.scene, viz1.camera);
+            viz2.renderer.render(viz2.scene, viz2.camera);
+        }
+        animate();
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            [viz1, viz2].forEach(viz => {
+                viz.camera.aspect = viz.container.clientWidth / viz.container.clientHeight;
+                viz.camera.updateProjectionMatrix();
+                viz.renderer.setSize(viz.container.clientWidth, viz.container.clientHeight);
+            });
+        });
+        
+        // Add event handlers for instance connections
+        function setupInstanceConnection(viz) {
+            const input = viz.instanceControls.querySelector('.instance-input');
+            const connectBtn = viz.instanceControls.querySelector('.connect-btn');
+            
+            connectBtn.onclick = () => {
+                const instanceId = input.value;
+                if (!instanceId) {
+                    console.log('No instance ID provided');
+                    return;
+                }
+                
+                connectToInstance(viz, instanceId);
+            };
+        }
+        
+        function connectToInstance(viz, instanceId) {
+            if (viz.currentEventSource) {
+                viz.currentEventSource.close();
+            }
+            
+            // Reset power history when connecting to new instance
+            viz.powerHistory = {
+                lastAxes: null,
+                lastCoolant: null,
+                timestamps: [],
+                totalPowerValues: [],
+                maxPoints: 50,
+                totalAccumulated: 0  // Reset accumulated total
+            };
+            
+            // Clear existing visualizations
+            viz.speedLines.clear();
+            viz.torqueLines.clear();
+            
+            // Reset power display
+            viz.powerDisplayDiv.innerHTML = `
+                <div style="margin-bottom: 5px; color: #00ff00; font-weight: bold;">Power Consumption</div>
+                <div style="margin-bottom: 3px;">Axes (currently): -- kW</div>
+                <div style="margin-bottom: 3px;">Coolant (currently): -- kW</div>
+                <div style="border-top: 1px solid #333; margin-top: 5px; padding-top: 5px;">
+                    Current Total: 0.0 kW
+                </div>
+                <div style="margin-top: 5px;">
+                    Accumulated Total: 0.0 kW
+                </div>
+            `;
+            viz.powerDisplayDiv.appendChild(viz.powerChartCanvas);
+            
+            // Clear the power chart
+            const ctx = viz.powerChartCanvas.getContext('2d');
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(0, 0, viz.powerChartCanvas.width, viz.powerChartCanvas.height);
+            
+            // Update instance label
+            viz.instanceLabel.textContent = `Displayed Instance: ${instanceId}`;
+            
+            viz.currentEventSource = new EventSource(`/stream?instance=${instanceId}`);
+            console.log(`Connecting to instance ${instanceId}`);
+            
+            viz.currentEventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                updateVisualization(viz, data);
+            };
+            
+            viz.currentEventSource.onerror = (error) => {
+                console.error('EventSource failed:', error);
+            };
+        }
+        
+        // Initialize instance connections
+        setupInstanceConnection(viz1);
+        setupInstanceConnection(viz2);
+
+        // Helper 
+        function formatValue(value) {
+            return typeof value === 'number' ? value.toFixed(3) : value;
+        }
+
+        function createLegend(type) {
+            const legend = document.createElement('div');
+            legend.style.position = 'absolute';
+            legend.style.bottom = '10px';
+            legend.style.left = '10px';
+            legend.style.color = 'white';
+            legend.style.fontFamily = 'monospace';
+            legend.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            legend.style.padding = '10px';
+            
+            if (type === 'speed') {
+                legend.innerHTML = `
+                    Speed Legend:<br>
+                    <div style="background: linear-gradient(to right, #00ff00, #ffff00, #ff0000); height: 20px; width: 200px;"></div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span><100</span>
+                        <span>250</span>
+                        <span>>350 mm/min</span>
+                    </div>
+                `;
+            } else {
+                legend.innerHTML = `
+                    Torque Magnitude Legend:<br>
+                    <div style="background: linear-gradient(to right, #0000ff, #ffff00); height: 20px; width: 200px;"></div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span><1.0</span>
+                        <span>1.5</span>
+                        <span>>2.0 Nm</span>
+                    </div>
+                `;
+                // Set initial visibility of torque legend to none
+                legend.style.display = 'none';
+            }
+            
+            return legend;
+        }
+
+        function getSpeedColor(speed) {
+            // Define speed thresholds (in mm/min)
+            const MIN_SPEED = 100;    // Below this: pure green (slow speed)
+            const MID_SPEED = 250;    // At this: pure yellow (medium speed)
+            const MAX_SPEED = 350;    // Above this: pure red (high speed)
+            
+            // For slow speeds: return pure green
+            if (speed < MIN_SPEED) {
+                return new THREE.Color(0, 1, 0);  // RGB: (0, 255, 0)
+            } 
+            // For speeds between MIN and MID: transition from green to yellow
+            else if (speed <= MID_SPEED) {
+                // Calculate how far we are between MIN and MID (0 to 1)
+                const normalizedSpeed = (speed - MIN_SPEED) / (MID_SPEED - MIN_SPEED);
+                return new THREE.Color(
+                    normalizedSpeed,  // Red increases
+                    1,               // Green stays at max
+                    0                // Blue stays at zero
+                );
+            } 
+            // For speeds between MID and MAX: transition from yellow to red
+            else if (speed <= MAX_SPEED) {
+                // Calculate how far we are between MID and MAX (0 to 1)
+                const normalizedSpeed = (speed - MID_SPEED) / (MAX_SPEED - MID_SPEED);
+                return new THREE.Color(
+                    1,                    // Red stays at max
+                    1 - normalizedSpeed,  // Green decreases
+                    0                     // Blue stays at zero
+                );
+            } 
+            // For very high speeds: return pure red
+            else {
+                return new THREE.Color(1, 0, 0);  // RGB: (255, 0, 0)
+            }
+        }
+
+        function getTorqueColor(torqueMagnitude) {
+            // Convert negative torque values to positive since magnitude is what matters
+            torqueMagnitude = Math.abs(torqueMagnitude);
+            
+            // Define torque thresholds (in Nm)
+            const MIN_TORQUE = 1.0;    // Below this: pure blue (low torque)
+            const MAX_TORQUE = 2.0;    // Above this: pure yellow (high torque)
+            
+            // For low torque: return pure blue
+            if (torqueMagnitude < MIN_TORQUE) {
+                return new THREE.Color(0, 0, 1);  // RGB: (0, 0, 255)
+            } 
+            // For torque between MIN and MAX: transition from blue to yellow
+            else if (torqueMagnitude <= MAX_TORQUE) {
+                // Calculate how far we are between MIN and MAX (0 to 1)
+                const t = (torqueMagnitude - MIN_TORQUE) / (MAX_TORQUE - MIN_TORQUE);
+                return new THREE.Color(
+                    t,      // Red increases with torque
+                    t,      // Green increases with torque
+                    1 - t   // Blue decreases with torque
+                );
+            } 
+            // For high torque: return pure yellow
+            else {
+                return new THREE.Color(1, 1, 0);  // RGB: (255, 255, 0)
+            }
+        }
+
+        // Update power display
+        function updatePowerDisplay(viz, data) {
+            if (!data.power) return;
+
+            // Validate and update power values
+            const axesPower = data.power.axes !== null ? Math.max(0, Math.abs(Number(data.power.axes))) : null;
+            const coolantPower = data.power.coolant !== null ? Math.max(0, Number(data.power.coolant)) : null;
+
+            // Update last known values only if they are valid numbers
+            if (axesPower !== null) viz.powerHistory.lastAxes = axesPower;
+            if (coolantPower !== null) viz.powerHistory.lastCoolant = coolantPower;
+
+            // Calculate current total power using absolute values
+            const currentTotal = (viz.powerHistory.lastAxes || 0) + (viz.powerHistory.lastCoolant || 0);
+
+            // Only add new point if we have at least one valid power value
+            if (axesPower !== null || coolantPower !== null) {
+                // Update total accumulated power
+                viz.powerHistory.totalAccumulated += currentTotal;
+                
+                // Add the accumulated total to the history for graph display
+                viz.powerHistory.timestamps.push(Date.now());
+                viz.powerHistory.totalPowerValues.push(viz.powerHistory.totalAccumulated);
+
+                // Keep only last N points for graph display
+                while (viz.powerHistory.timestamps.length > viz.powerHistory.maxPoints) {
+                    viz.powerHistory.timestamps.shift();
+                    viz.powerHistory.totalPowerValues.shift();
+                }
+            }
+
+            // Format current values for display (convert to kW)
+            const axesStr = viz.powerHistory.lastAxes !== null ? 
+                (viz.powerHistory.lastAxes / 1000).toFixed(1) : '--';
+            const coolantStr = viz.powerHistory.lastCoolant !== null ? 
+                (viz.powerHistory.lastCoolant / 1000).toFixed(1) : '--';
+            const currentTotalKW = currentTotal / 1000;
+            const accumulatedTotalKW = viz.powerHistory.totalAccumulated / 1000;
+
+            // Update the text display
+            viz.powerDisplayDiv.innerHTML = `
+                <div style="margin-bottom: 5px; color: #00ff00; font-weight: bold;">Power Consumption</div>
+                <div style="margin-bottom: 3px;">Axes (currently): ${axesStr} kW</div>
+                <div style="margin-bottom: 3px;">Coolant (currently): ${coolantStr} kW</div>
+                <div style="border-top: 1px solid #333; margin-top: 5px; padding-top: 5px;">
+                    Current Total: ${currentTotalKW.toFixed(1)} kW
+                </div>
+                <div style="margin-top: 5px;">
+                    Accumulated Total: ${accumulatedTotalKW.toFixed(1)} kW
+                </div>
+            `;
+
+            // Re-append the canvas only if it's not already the last child
+            if (viz.powerDisplayDiv.lastChild !== viz.powerChartCanvas) {
+                viz.powerDisplayDiv.appendChild(viz.powerChartCanvas);
+            }
+
+            // Draw the chart
+            const ctx = viz.powerChartCanvas.getContext('2d');
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(0, 0, viz.powerChartCanvas.width, viz.powerChartCanvas.height);
+
+            // Set up chart area
+            const padding = 20;
+            const chartWidth = viz.powerChartCanvas.width - 2 * padding;
+            const chartHeight = viz.powerChartCanvas.height - 2 * padding;
+
+            // Draw grid lines
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 5; i++) {
+                const y = padding + (i / 5) * chartHeight;
+                ctx.beginPath();
+                ctx.moveTo(padding, y);
+                ctx.lineTo(viz.powerChartCanvas.width - padding, y);
+                ctx.stroke();
+            }
+
+            // Draw accumulated power line
+            if (viz.powerHistory.totalPowerValues.length > 1) {
+                const values = viz.powerHistory.totalPowerValues;
+                const maxValue = Math.max(...values) / 1000; // Convert to kW
+
+                ctx.strokeStyle = '#ffff00'; // Yellow for accumulated power
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+
+                values.forEach((value, i) => {
+                    const x = padding + (i / (viz.powerHistory.maxPoints - 1)) * chartWidth;
+                    const y = viz.powerChartCanvas.height - padding - 
+                        ((value / 1000) / maxValue) * chartHeight;
+                    
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+
+                ctx.stroke();
+
+                // Add current value label
+                ctx.font = 'bold 12px monospace';
+                ctx.fillStyle = '#ffff00';
+                ctx.textAlign = 'right';
+                const lastValue = values[values.length - 1] / 1000;
+                ctx.fillText(`${lastValue.toFixed(1)} kW`, viz.powerChartCanvas.width - padding, padding);
+            }
+
+            // Add time labels
+            ctx.font = '10px monospace';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'left';
+            ctx.fillText('Now', viz.powerChartCanvas.width - padding - 30, viz.powerChartCanvas.height - 5);
+            ctx.textAlign = 'right';
+            ctx.fillText('Past', padding + 30, viz.powerChartCanvas.height - 5);
+        }
+
+        function updateVisualization(viz, data) {
+            // Ensure all data objects exist
+            data.position = data.position || { x: null, y: null, z: null };
+            data.speed = data.speed || { x: null, y: null, z: null };
+            data.torque = data.torque || { x: null, y: null, z: null };
+            data.power = data.power || { axes: null, coolant: null };
+            
+            // Update program state display with null check
+            if (data.programState !== null && data.programState !== undefined) {
+                viz.programStateDiv.innerHTML = `Tool Ident: ${data.programState}`;
+            }
+            
+            if (data.position) {
+                const pos = {
+                    x: data.position.x !== null ? data.position.x : viz.lastPosition?.x,
+                    y: data.position.y !== null ? data.position.y : viz.lastPosition?.y,
+                    z: data.position.z !== null ? data.position.z : viz.lastPosition?.z
+                };
+                
+                if (pos.x !== null && pos.y !== null && pos.z !== null) {
+                    const currentPos = new THREE.Vector3(pos.x, pos.y, pos.z);
+                    
+                    if (viz.lastPosition) {
+                        // Create line segment for speed visualization
+                        if (data.speed) {
+                            const avgSpeed = Math.sqrt(
+                                Math.pow(data.speed.x || 0, 2) + 
+                                Math.pow(data.speed.y || 0, 2) + 
+                                Math.pow(data.speed.z || 0, 2)
+                            );
+                            
+                            const path = new THREE.LineCurve3(viz.lastPosition, currentPos);
+                            const tubeGeometry = new THREE.TubeGeometry(
+                                path,
+                                1,
+                                0.5,
+                                8,
+                                false
+                            );
+                            
+                            const speedMaterial = new THREE.MeshBasicMaterial({ 
+                                color: getSpeedColor(avgSpeed)
+                            });
+                            
+                            const speedLine = new THREE.Mesh(tubeGeometry, speedMaterial);
+                            speedLine.visible = viz.currentMode === 'speed';
+                            viz.speedLines.add(speedLine);
+                        }
+
+                        // Create line segment for torque visualization
+                        if (data.torque) {
+                            const torqueMagnitude = Math.sqrt(
+                                Math.pow(data.torque.x || 0, 2) + 
+                                Math.pow(data.torque.y || 0, 2) + 
+                                Math.pow(data.torque.z || 0, 2)
+                            ) || 0;  // Fallback to 0 if NaN
+                            
+                            const path = new THREE.LineCurve3(viz.lastPosition, currentPos);
+                            const tubeGeometry = new THREE.TubeGeometry(
+                                path,
+                                1,
+                                0.5,
+                                8,
+                                false
+                            );
+                            
+                            const torqueMaterial = new THREE.MeshBasicMaterial({ 
+                                color: getTorqueColor(torqueMagnitude)
+                            });
+                            
+                            const torqueLine = new THREE.Mesh(tubeGeometry, torqueMaterial);
+                            torqueLine.visible = viz.currentMode === 'torque';
+                            viz.torqueLines.add(torqueLine);
+                        }
+                    }
+
+                    viz.lastPosition = currentPos;
+                }
+            }
+
+            // Update data display
+            const container = document.getElementById('data-container');
+            const instanceId = viz.instanceLabel.textContent.split(': ')[1];
+            
+            // Find or create instance-specific data container
+            let instanceDataContainer = container.querySelector(`[data-instance="${instanceId}"]`);
+            if (!instanceDataContainer) {
+                instanceDataContainer = document.createElement('div');
+                instanceDataContainer.setAttribute('data-instance', instanceId);
+                instanceDataContainer.className = 'instance-data';
+                container.appendChild(instanceDataContainer);
+            }
+
+            const div = document.createElement('div');
+            div.className = 'data-point';
+            
+            // Format timestamp
+            const timestamp = new Date(data.timestamp);
+            const formattedTime = timestamp.toLocaleTimeString();
+            
+            let content = `
+                <div class="timestamp">[${formattedTime}]</div>
+                
+                <div class="category">
+                    <div class="category-title">Position:</div>
+                    <div class="values">
+                        X: ${formatValue(data.position.x)}
+                        Y: ${formatValue(data.position.y)}
+                        Z: ${formatValue(data.position.z)}
+                    </div>
+                </div>
+
+                <div class="category">
+                    <div class="category-title">Speed:</div>
+                    <div class="values">
+                        X: ${formatValue(data.speed.x)}
+                        Y: ${formatValue(data.speed.y)}
+                        Z: ${formatValue(data.speed.z)}
+                    </div>
+                </div>
+
+                <div class="category">
+                    <div class="category-title">Torque:</div>
+                    <div class="values">
+                        X: ${formatValue(data.torque.x)}
+                        Y: ${formatValue(data.torque.y)}
+                        Z: ${formatValue(data.torque.z)}
+                    </div>
+                </div>
+
+                <div class="category">
+                    <div class="category-title">Tool Ident:</div>
+                    <div class="values program-state">${data.programState || 'N/A'}</div>
+                </div>
+            `;
+            
+            div.innerHTML = content;
+            
+            if (instanceDataContainer.firstChild && instanceDataContainer.firstChild.textContent === 'Waiting for data...') {
+                instanceDataContainer.removeChild(instanceDataContainer.firstChild);
+            }
+            
+            instanceDataContainer.insertBefore(div, instanceDataContainer.firstChild);
+            
+            // Limit displayed points per instance
+            if (instanceDataContainer.children.length > 50) {
+                instanceDataContainer.removeChild(instanceDataContainer.lastChild);
+            }
+
+            // Update power display
+            updatePowerDisplay(viz, data);
+        }
+
+        // Add visualization mode toggle handlers
+        function setupVisualizationMode(viz) {
+            const modeButtons = viz.visualizationDiv.querySelectorAll('.mode-btn');
+            modeButtons.forEach(button => {
+                button.onclick = () => {
+                    const mode = button.dataset.mode;
+                    viz.currentMode = mode;
+                    
+                    // Update visibility of all lines
+                    viz.speedLines.children.forEach(line => {
+                        line.visible = mode === 'speed';
+                    });
+                    viz.torqueLines.children.forEach(line => {
+                        line.visible = mode === 'torque';
+                    });
+                    
+                    // Update legend visibility
+                    viz.speedLegend.style.display = mode === 'speed' ? 'block' : 'none';
+                    viz.torqueLegend.style.display = mode === 'torque' ? 'block' : 'none';
+                };
+            });
+        }
+
+        // Initialize visualization modes
+        setupVisualizationMode(viz1);
+        setupVisualizationMode(viz2);
+  </script>
+</body>
+</html>
