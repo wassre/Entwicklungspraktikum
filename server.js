@@ -17,18 +17,18 @@ let lastKnownPosition = {
     z: null
 };
 
-const dataBuffer = [];  // Store data history
+const dataBuffer = [];  // Store normalized data history
 const MAX_BUFFER_SIZE = 10000;  
 const clients = [];
 
 // Configure multer for memory storage
 const upload = multer();
 
-app.use(express.static('public')); 
+app.use(express.static('public')); // Serve frontend from /public
 
 // SSE endpoint for live data streaming
 app.get('/stream', (req, res) => {
-    const instanceId = req.query.instance;  
+    const instanceId = req.query.instance;  // Get instance from query parameter
     
     res.set({
         'Content-Type': 'text/event-stream',
@@ -44,7 +44,7 @@ app.get('/stream', (req, res) => {
 
     // Send historical data from buffer
     const instanceData = dataBuffer.filter(data => data.instance === instanceId);
-    //logWithTimestamp(`Sending ${instanceData.length} historical data points to new client`);
+    logWithTimestamp(`Sending ${instanceData.length} historical data points to new client`);
     instanceData.forEach(data => {
         const sseFormatted = `data: ${JSON.stringify(data)}\n\n`;
         client.res.write(sseFormatted);
@@ -75,7 +75,7 @@ app.post('/', upload.none(), (req, res) => {
             return res.status(200).send('OK');
         }
 
-        //logWithTimestamp('Parsed notification:', notification);
+        logWithTimestamp('Parsed notification:', notification);
 
         if (notification.name === 'extraction') {
             // Create a Map to store data by timestamp
@@ -133,7 +133,7 @@ app.post('/', upload.none(), (req, res) => {
                     // Power consumption
                     else if (id.includes('MaxxTurn45/Axes/Power/Active/Sum')) sensorData.power.axes = value;
                     else if (id.includes('MaxxTurn45/Coolant/Power/Active/Sum')) sensorData.power.coolant = value;
-                    // else if (id.includes('sys_active_power')) sensorData.power.system = value; Could not find appropriate values in the logs
+                    // else if (id.includes('sys_active_power')) sensorData.power.system = value; Could not find appropriate values
 
                     // Torque data
                     else if (id.includes('Axes/X/aaTorque')) sensorData.torque.x = value;
@@ -141,7 +141,7 @@ app.post('/', upload.none(), (req, res) => {
                     else if (id.includes('Axes/Z/aaTorque')) sensorData.torque.z = value;
 
                     // Program state
-                    else if (id.includes('State/actToolIdent')) sensorData.programState = value; // In Absprache mit Herr Ehrendorfer, da "ProgStatus" durchgehend auf 3 bleibt
+                    else if (id.includes('State/actToolIdent')) sensorData.programState = value; //In Absprache mit Herr Ehrendorfer, da "ProgStatus" durchgehend auf 3 bleibt
                 }
             });
 
@@ -163,7 +163,6 @@ app.post('/', upload.none(), (req, res) => {
                 .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
             // Log each timestamp group's data
-            /*
             logWithTimestamp('\nTimestamp Groups Data:');
             sortedData.forEach((sensorData, index) => {
                 logWithTimestamp(`\nTimestamp ${index + 1}: ${sensorData.timestamp}`);
@@ -174,7 +173,6 @@ app.post('/', upload.none(), (req, res) => {
                 logWithTimestamp('Program State:', sensorData.programState);
             });
             logWithTimestamp('\n');
-            */
 
             // Track the last data point that was added to the buffer
             let lastStoredData = dataBuffer.length > 0 ? dataBuffer[dataBuffer.length - 1] : null;
@@ -187,7 +185,7 @@ app.post('/', upload.none(), (req, res) => {
                 // Add instance ID to the data point
                 sensorData.instance = notification.instance.toString();
                 
-                // Check if this data point is different from the last one stored to avoid duplicates
+                // Check if this data point is different from the last one stored
                 const hasChanged = !lastStoredData || 
                     // Compare positions
                     lastStoredData.position.x !== sensorData.position.x ||

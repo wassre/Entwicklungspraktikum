@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Machining V2 Data Visualization</title>
+    <title> Machine V2 Data Visualization</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <style>
@@ -193,20 +193,20 @@
             // Position camera
             camera.position.set(
                 workingCenter.x,
-                workingCenter.y + 200,
-                workingCenter.z + 300
+                workingCenter.y + 150,
+                workingCenter.z + 200
             );
             camera.lookAt(workingCenter.x, workingCenter.y, workingCenter.z);
             
             // Add orbit controls
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.target.set(workingCenter.x, workingCenter.y, workingCenter.z);
-            controls.enableDamping = true;  
-            controls.dampingFactor = 0.05;  
-            controls.screenSpacePanning = true;  
-            controls.minDistance = 50;  
-            controls.maxDistance = 500;  
-            controls.maxPolarAngle = Math.PI / 2;  
+            controls.enableDamping = true;  // Add smooth damping
+            controls.dampingFactor = 0.05;  // Adjust damping factor
+            controls.screenSpacePanning = true;  // Enable panning
+            controls.minDistance = 50;  // Set minimum zoom distance
+            controls.maxDistance = 500;  // Set maximum zoom distance
+            controls.maxPolarAngle = Math.PI / 2;  // Limit vertical rotation
             controls.update();
             
             // Setup scene
@@ -322,6 +322,7 @@
             });
         });
         
+        
         // Add event handlers for instance connections
         function setupInstanceConnection(viz) {
             const input = viz.instanceControls.querySelector('.instance-input');
@@ -343,38 +344,8 @@
                 viz.currentEventSource.close();
             }
             
-            // Reset power history when connecting to new instance
-            viz.powerHistory = {
-                lastAxes: null,
-                lastCoolant: null,
-                timestamps: [],
-                totalPowerValues: [],
-                maxPoints: 50,
-                totalAccumulated: 0  // Reset accumulated total
-            };
-            
-            // Clear existing visualizations
             viz.speedLines.clear();
             viz.torqueLines.clear();
-            
-            // Reset power display
-            viz.powerDisplayDiv.innerHTML = `
-                <div style="margin-bottom: 5px; color: #00ff00; font-weight: bold;">Power Consumption</div>
-                <div style="margin-bottom: 3px;">Axes (currently): -- kW</div>
-                <div style="margin-bottom: 3px;">Coolant (currently): -- kW</div>
-                <div style="border-top: 1px solid #333; margin-top: 5px; padding-top: 5px;">
-                    Current Total: 0.0 kW
-                </div>
-                <div style="margin-top: 5px;">
-                    Accumulated Total: 0.0 kW
-                </div>
-            `;
-            viz.powerDisplayDiv.appendChild(viz.powerChartCanvas);
-            
-            // Clear the power chart
-            const ctx = viz.powerChartCanvas.getContext('2d');
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-            ctx.fillRect(0, 0, viz.powerChartCanvas.width, viz.powerChartCanvas.height);
             
             // Update instance label
             viz.instanceLabel.textContent = `Displayed Instance: ${instanceId}`;
@@ -396,7 +367,7 @@
         setupInstanceConnection(viz1);
         setupInstanceConnection(viz2);
 
-        // Helper 
+        // Helper functions
         function formatValue(value) {
             return typeof value === 'number' ? value.toFixed(3) : value;
         }
@@ -438,67 +409,57 @@
             return legend;
         }
 
+        // Speed color calculation based on thresholds:
+        // - Below 100 mm/min: Pure green (slow speed)
+        // - 100-250 mm/min: Green to yellow transition (medium speed)
+        // - 250-350 mm/min: Yellow to red transition (high speed)
+        // - Above 350 mm/min: Pure red (very high speed)
         function getSpeedColor(speed) {
-            // Define speed thresholds (in mm/min)
-            const MIN_SPEED = 100;    // Below this: pure green (slow speed)
-            const MID_SPEED = 250;    // At this: pure yellow (medium speed)
-            const MAX_SPEED = 350;    // Above this: pure red (high speed)
+            const MIN_SPEED = 100;    // Start green
+            const MID_SPEED = 250;    // Pure yellow
+            const MAX_SPEED = 350;    // Pure red
             
-            // For slow speeds: return pure green
             if (speed < MIN_SPEED) {
-                return new THREE.Color(0, 1, 0);  // RGB: (0, 255, 0)
-            } 
-            // For speeds between MIN and MID: transition from green to yellow
-            else if (speed <= MID_SPEED) {
-                // Calculate how far we are between MIN and MID (0 to 1)
+                return new THREE.Color(0, 1, 0);
+            } else if (speed <= MID_SPEED) {
                 const normalizedSpeed = (speed - MIN_SPEED) / (MID_SPEED - MIN_SPEED);
                 return new THREE.Color(
-                    normalizedSpeed,  // Red increases
-                    1,               // Green stays at max
-                    0                // Blue stays at zero
+                    normalizedSpeed,
+                    1,
+                    0
                 );
-            } 
-            // For speeds between MID and MAX: transition from yellow to red
-            else if (speed <= MAX_SPEED) {
-                // Calculate how far we are between MID and MAX (0 to 1)
+            } else if (speed <= MAX_SPEED) {
                 const normalizedSpeed = (speed - MID_SPEED) / (MAX_SPEED - MID_SPEED);
                 return new THREE.Color(
-                    1,                    // Red stays at max
-                    1 - normalizedSpeed,  // Green decreases
-                    0                     // Blue stays at zero
+                    1,
+                    1 - normalizedSpeed,
+                    0
                 );
-            } 
-            // For very high speeds: return pure red
-            else {
-                return new THREE.Color(1, 0, 0);  // RGB: (255, 0, 0)
+            } else {
+                return new THREE.Color(1, 0, 0);
             }
         }
 
+        // Torque color calculation based on magnitude:
+        // - Below 1.0 Nm: Pure blue (low torque)
+        // - 1.0-2.0 Nm: Blue to yellow transition (medium to high torque)
+        // - Above 2.0 Nm: Pure yellow (very high torque)
+        // Color transition: blue -> light blue -> white -> yellow
         function getTorqueColor(torqueMagnitude) {
-            // Convert negative torque values to positive since magnitude is what matters
-            torqueMagnitude = Math.abs(torqueMagnitude);
+            const MIN_TORQUE = 1.0;
+            const MAX_TORQUE = 2.0;
             
-            // Define torque thresholds (in Nm)
-            const MIN_TORQUE = 1.0;    // Below this: pure blue (low torque)
-            const MAX_TORQUE = 2.0;    // Above this: pure yellow (high torque)
-            
-            // For low torque: return pure blue
             if (torqueMagnitude < MIN_TORQUE) {
-                return new THREE.Color(0, 0, 1);  // RGB: (0, 0, 255)
-            } 
-            // For torque between MIN and MAX: transition from blue to yellow
-            else if (torqueMagnitude <= MAX_TORQUE) {
-                // Calculate how far we are between MIN and MAX (0 to 1)
+                return new THREE.Color(0, 0, 1);
+            } else if (torqueMagnitude <= MAX_TORQUE) {
                 const t = (torqueMagnitude - MIN_TORQUE) / (MAX_TORQUE - MIN_TORQUE);
                 return new THREE.Color(
-                    t,      // Red increases with torque
-                    t,      // Green increases with torque
-                    1 - t   // Blue decreases with torque
+                    t,
+                    t,
+                    1 - t
                 );
-            } 
-            // For high torque: return pure yellow
-            else {
-                return new THREE.Color(1, 1, 0);  // RGB: (255, 255, 0)
+            } else {
+                return new THREE.Color(1, 1, 0);
             }
         }
 
@@ -506,28 +467,29 @@
         function updatePowerDisplay(viz, data) {
             if (!data.power) return;
 
-            // Validate and update power values
-            const axesPower = data.power.axes !== null ? Math.max(0, Math.abs(Number(data.power.axes))) : null;
-            const coolantPower = data.power.coolant !== null ? Math.max(0, Number(data.power.coolant)) : null;
-
-            // Update last known values only if they are valid numbers
-            if (axesPower !== null) viz.powerHistory.lastAxes = axesPower;
-            if (coolantPower !== null) viz.powerHistory.lastCoolant = coolantPower;
+            // Update last known values and calculate total
+            if (data.power.axes !== null) {
+                // Take absolute value of axes power since power consumption can't be negative
+                viz.powerHistory.lastAxes = Math.abs(data.power.axes);
+            }
+            if (data.power.coolant !== null) {
+                viz.powerHistory.lastCoolant = data.power.coolant;
+            }
 
             // Calculate current total power using absolute values
             const currentTotal = (viz.powerHistory.lastAxes || 0) + (viz.powerHistory.lastCoolant || 0);
 
-            // Only add new point if we have at least one valid power value
-            if (axesPower !== null || coolantPower !== null) {
+            // Only add new point if we have any power value
+            if (data.power.axes !== null || data.power.coolant !== null) {
                 // Update total accumulated power
                 viz.powerHistory.totalAccumulated += currentTotal;
-                
-                // Add the accumulated total to the history for graph display
+
+                // Add the current total to the history for graph display
                 viz.powerHistory.timestamps.push(Date.now());
                 viz.powerHistory.totalPowerValues.push(viz.powerHistory.totalAccumulated);
 
                 // Keep only last N points for graph display
-                while (viz.powerHistory.timestamps.length > viz.powerHistory.maxPoints) {
+                if (viz.powerHistory.timestamps.length > viz.powerHistory.maxPoints) {
                     viz.powerHistory.timestamps.shift();
                     viz.powerHistory.totalPowerValues.shift();
                 }
@@ -542,7 +504,7 @@
             const accumulatedTotalKW = viz.powerHistory.totalAccumulated / 1000;
 
             // Update the text display
-            viz.powerDisplayDiv.innerHTML = `
+            const textDisplay = `
                 <div style="margin-bottom: 5px; color: #00ff00; font-weight: bold;">Power Consumption</div>
                 <div style="margin-bottom: 3px;">Axes (currently): ${axesStr} kW</div>
                 <div style="margin-bottom: 3px;">Coolant (currently): ${coolantStr} kW</div>
@@ -553,148 +515,133 @@
                     Accumulated Total: ${accumulatedTotalKW.toFixed(1)} kW
                 </div>
             `;
-
-            // Re-append the canvas only if it's not already the last child
-            if (viz.powerDisplayDiv.lastChild !== viz.powerChartCanvas) {
-                viz.powerDisplayDiv.appendChild(viz.powerChartCanvas);
-            }
+            viz.powerDisplayDiv.innerHTML = textDisplay;
+            viz.powerDisplayDiv.appendChild(viz.powerChartCanvas);
 
             // Draw the chart
             const ctx = viz.powerChartCanvas.getContext('2d');
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-            ctx.fillRect(0, 0, viz.powerChartCanvas.width, viz.powerChartCanvas.height);
+            ctx.clearRect(0, 0, viz.powerChartCanvas.width, viz.powerChartCanvas.height);
 
             // Set up chart area
             const padding = 20;
             const chartWidth = viz.powerChartCanvas.width - 2 * padding;
             const chartHeight = viz.powerChartCanvas.height - 2 * padding;
 
-            // Draw grid lines
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            // Find min and max values for scaling (in kW)
+            const minValue = viz.powerHistory.totalPowerValues.length > 0 ? 
+                Math.min(...viz.powerHistory.totalPowerValues) / 1000 : 0;
+            const maxValue = viz.powerHistory.totalPowerValues.length > 0 ? 
+                Math.max(...viz.powerHistory.totalPowerValues) / 1000 : 1;
+            const valueRange = maxValue - minValue;
+
+            // Draw axes
+            ctx.strokeStyle = '#666';
             ctx.lineWidth = 1;
-            for (let i = 0; i <= 5; i++) {
-                const y = padding + (i / 5) * chartHeight;
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, viz.powerChartCanvas.height - padding);
+            ctx.lineTo(viz.powerChartCanvas.width - padding, viz.powerChartCanvas.height - padding);
+            ctx.stroke();
+
+            // Draw total power line
+            if (viz.powerHistory.timestamps.length > 1) {
+                // Draw accumulated total power line (yellow)
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.moveTo(padding, y);
-                ctx.lineTo(viz.powerChartCanvas.width - padding, y);
-                ctx.stroke();
-            }
-
-            // Draw accumulated power line
-            if (viz.powerHistory.totalPowerValues.length > 1) {
-                const values = viz.powerHistory.totalPowerValues;
-                const maxValue = Math.max(...values) / 1000; // Convert to kW
-
-                ctx.strokeStyle = '#ffff00'; // Yellow for accumulated power
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-
-                values.forEach((value, i) => {
+                viz.powerHistory.totalPowerValues.forEach((value, i) => {
                     const x = padding + (i / (viz.powerHistory.maxPoints - 1)) * chartWidth;
                     const y = viz.powerChartCanvas.height - padding - 
-                        ((value / 1000) / maxValue) * chartHeight;
-                    
+                        (((value / 1000) - minValue) / valueRange) * chartHeight;
                     if (i === 0) ctx.moveTo(x, y);
                     else ctx.lineTo(x, y);
                 });
-
                 ctx.stroke();
-
-                // Add current value label
-                ctx.font = 'bold 12px monospace';
-                ctx.fillStyle = '#ffff00';
-                ctx.textAlign = 'right';
-                const lastValue = values[values.length - 1] / 1000;
-                ctx.fillText(`${lastValue.toFixed(1)} kW`, viz.powerChartCanvas.width - padding, padding);
             }
 
-            // Add time labels
+            // Add legend and current value
             ctx.font = '10px monospace';
-            ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'left';
-            ctx.fillText('Now', viz.powerChartCanvas.width - padding - 30, viz.powerChartCanvas.height - 5);
-            ctx.textAlign = 'right';
-            ctx.fillText('Past', padding + 30, viz.powerChartCanvas.height - 5);
+            ctx.fillStyle = '#ffff00';
+            ctx.fillText('Accumulated Power Over Time', padding, padding - 5);
         }
 
         function updateVisualization(viz, data) {
-            // Ensure all data objects exist
-            data.position = data.position || { x: null, y: null, z: null };
-            data.speed = data.speed || { x: null, y: null, z: null };
-            data.torque = data.torque || { x: null, y: null, z: null };
-            data.power = data.power || { axes: null, coolant: null };
-            
-            // Update program state display with null check
-            if (data.programState !== null && data.programState !== undefined) {
+            // Update the Tool Ident display when program state changes
+            if (data.programState) {
                 viz.programStateDiv.innerHTML = `Tool Ident: ${data.programState}`;
             }
             
             if (data.position) {
-                const pos = {
-                    x: data.position.x !== null ? data.position.x : viz.lastPosition?.x,
-                    y: data.position.y !== null ? data.position.y : viz.lastPosition?.y,
-                    z: data.position.z !== null ? data.position.z : viz.lastPosition?.z
-                };
+                const pos = data.position;
+                const currentPos = new THREE.Vector3(pos.x, pos.y, pos.z);
                 
-                if (pos.x !== null && pos.y !== null && pos.z !== null) {
-                    const currentPos = new THREE.Vector3(pos.x, pos.y, pos.z);
-                    
-                    if (viz.lastPosition) {
-                        // Create line segment for speed visualization
-                        if (data.speed) {
-                            const avgSpeed = Math.sqrt(
-                                Math.pow(data.speed.x || 0, 2) + 
-                                Math.pow(data.speed.y || 0, 2) + 
-                                Math.pow(data.speed.z || 0, 2)
-                            );
-                            
-                            const path = new THREE.LineCurve3(viz.lastPosition, currentPos);
-                            const tubeGeometry = new THREE.TubeGeometry(
-                                path,
-                                1,
-                                0.5,
-                                8,
-                                false
-                            );
-                            
-                            const speedMaterial = new THREE.MeshBasicMaterial({ 
-                                color: getSpeedColor(avgSpeed)
-                            });
-                            
-                            const speedLine = new THREE.Mesh(tubeGeometry, speedMaterial);
-                            speedLine.visible = viz.currentMode === 'speed';
-                            viz.speedLines.add(speedLine);
-                        }
-
-                        // Create line segment for torque visualization
-                        if (data.torque) {
-                            const torqueMagnitude = Math.sqrt(
-                                Math.pow(data.torque.x || 0, 2) + 
-                                Math.pow(data.torque.y || 0, 2) + 
-                                Math.pow(data.torque.z || 0, 2)
-                            ) || 0;  // Fallback to 0 if NaN
-                            
-                            const path = new THREE.LineCurve3(viz.lastPosition, currentPos);
-                            const tubeGeometry = new THREE.TubeGeometry(
-                                path,
-                                1,
-                                0.5,
-                                8,
-                                false
-                            );
-                            
-                            const torqueMaterial = new THREE.MeshBasicMaterial({ 
-                                color: getTorqueColor(torqueMagnitude)
-                            });
-                            
-                            const torqueLine = new THREE.Mesh(tubeGeometry, torqueMaterial);
-                            torqueLine.visible = viz.currentMode === 'torque';
-                            viz.torqueLines.add(torqueLine);
-                        }
+                if (viz.lastPosition) {
+                    if (data.speed) {
+                        // Calculate total speed magnitude using Pythagorean theorem (sqrt(x² + y² + z²))
+                        // This gives us the overall speed regardless of direction
+                        const avgSpeed = Math.sqrt(
+                            Math.pow(data.speed.x || 0, 2) + // X-axis speed component (default to 0 if null)
+                            Math.pow(data.speed.y || 0, 2) + // Y-axis speed component (default to 0 if null)
+                            Math.pow(data.speed.z || 0, 2)   // Z-axis speed component (default to 0 if null)
+                        );
+                        
+                        // Create a 3D curve between the last position and current position
+                        const path = new THREE.LineCurve3(viz.lastPosition, currentPos);
+                        
+                        // Create a tube geometry around the path
+                        // Parameters: (path, segments, radius, radialSegments, closed)
+                        const tubeGeometry = new THREE.TubeGeometry(
+                            path,       // The path to create the tube along
+                            1,         // Number of segments along the path
+                            0.5,       // Radius of the tube
+                            8,         // Number of segments around the tube
+                            false      // Not closed (open-ended tube)
+                        );
+                        
+                        // Color the tube based on speed magnitude
+                        const speedMaterial = new THREE.MeshBasicMaterial({ 
+                            color: getSpeedColor(avgSpeed)  // Color based on total speed magnitude
+                        });
+                        
+                        // Add the tube to the scene, only visible in speed mode
+                        const speedLine = new THREE.Mesh(tubeGeometry, speedMaterial);
+                        speedLine.visible = viz.currentMode === 'speed';
+                        viz.speedLines.add(speedLine);
                     }
 
-                    viz.lastPosition = currentPos;
+                    if (data.torque) {
+                        // Calculate total torque magnitude using Pythagorean theorem (sqrt(x² + y² + z²))
+                        // This gives us the overall torque force regardless of direction
+                        const torqueMagnitude = Math.sqrt(
+                            Math.pow(data.torque.x || 0, 2) + // X-axis torque component
+                            Math.pow(data.torque.y || 0, 2) + // Y-axis torque component
+                            Math.pow(data.torque.z || 0, 2)   // Z-axis torque component
+                        );
+                        
+                        // Create a 3D curve between the last position and current position
+                        const path = new THREE.LineCurve3(viz.lastPosition, currentPos);
+                        const tubeGeometry = new THREE.TubeGeometry(
+                            path,       // The path to create the tube along
+                            1,         // Number of segments along the path
+                            0.5,       // Radius of the tube
+                            8,         // Number of segments around the tube
+                            false      // Not closed (open-ended tube)
+                        );
+                        
+                        // Create material with color based on torque
+                        // Color transitions: blue (low torque) -> yellow (high torque)
+                        const torqueMaterial = new THREE.MeshBasicMaterial({ 
+                            color: getTorqueColor(torqueMagnitude) 
+                        });
+                        
+                        // Create the visible line segment and add it to the scene
+                        const torqueLine = new THREE.Mesh(tubeGeometry, torqueMaterial);
+                        torqueLine.visible = viz.currentMode === 'torque';  // Only show in torque mode
+                        viz.torqueLines.add(torqueLine);
+                    }
                 }
+
+                viz.lastPosition = currentPos;
             }
 
             // Update data display
