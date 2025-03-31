@@ -16,10 +16,11 @@ This project provides a real-time visualization of the Machine V2 (https://zenod
 1. Connect to the TUM Lehre server:
 ```bash
 ssh ge27tuq@lehre.bpm.in.tum.de
+```
 or use configured ssh: 
+```bash
 ssh tum-bpm
 ```
-
 2. Navigate to the public_html directory:
 ```bash
 cd public_html
@@ -36,6 +37,22 @@ https://lehre.bpm.in.tum.de/ports/8333/
 ```
 
 Note: The server must be running to receive and display data from the CPEE instance. The server is configured to accept data from "Machining V2" and "Machining V2 Alternative" instances.
+
+## Run locally:
+To run the application locally, some lines have to be uncommented in the code. After that follow these steps:
+
+1. Active Port Forwarding
+```bash
+ssh tum-bpm -R 8333:localhost:8080
+```
+2. Go to local directory and start server
+```bash
+node server.js
+```
+The visualization will be available at:
+```
+https://localhost:8080/
+```
 
 ## Usage
 
