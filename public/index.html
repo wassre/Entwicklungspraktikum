@@ -350,7 +350,8 @@
             // Update instance label
             viz.instanceLabel.textContent = `Displayed Instance: ${instanceId}`;
             
-            viz.currentEventSource = new EventSource(`/stream?instance=${instanceId}`);
+            //viz.currentEventSource = new EventSource(`/stream?instance=${instanceId}`);
+            viz.currentEventSource = new EventSource(`https://lehre.bpm.in.tum.de/ports/8333/stream?instance=${instanceId}`);
             console.log(`Connecting to instance ${instanceId}`);
             
             viz.currentEventSource.onmessage = (event) => {

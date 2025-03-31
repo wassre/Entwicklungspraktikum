@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const app = express();
-const PORT = 8080;
+const PORT = 8333;
 
 // Helper function to add timestamps to logs
 function logWithTimestamp(message, ...args) {
@@ -247,5 +247,5 @@ app.get('/data-history', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  logWithTimestamp(`CPEE server running on http://localhost:${PORT}`);
+  logWithTimestamp(`CPEE server running on https://lehre.bpm.in.tum.de/ports/${PORT}`);
 });
